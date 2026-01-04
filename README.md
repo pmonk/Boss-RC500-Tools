@@ -22,7 +22,7 @@ The easiest way to use these tools is the graphical interface.
 ```bash
 python BossRC500GUI.py
 ```
-## Requirements
+
 ## Requirements
 - **Python 3.6+** (Standard installation usually includes `tkinter` for the GUI).
 - A **Boss RC-500** Loop Station connected via USB.
@@ -39,4 +39,5 @@ This tool performs file operations including **PERMANENT DELETION** of files on 
 
 ## License
 GNU General Public License v3.0
+
 
