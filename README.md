@@ -14,6 +14,18 @@ A simple Python utility for musicians who want to backup their Boss RC-500 loops
 3. **Place the script** in the folder where you want your backups to live (e.g., `My Music/Backups`).
 4. **Run the script** (double-click the file, or run via terminal with `python BossRC500Export.py`).
 
+## GUI Version (New!)
+Prefer a visual interface? Run `BossRC500GUI.py` instead!
+- **Visual Log:** See exactly what is being copied.
+- **Select Destination:** easy "Browse" button to pick where backups go.
+- **Non-Freezing:** Runs in the background so you can keep working.
+
+On Windows you can double-click the file and it will run or...
+
+Run it with:
+```bash
+python BossRC500GUI.py
+```
 ## Requirements
 - Python 3.6+
 - A Boss RC-500 Loop Station
