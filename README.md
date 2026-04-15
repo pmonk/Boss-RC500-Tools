@@ -13,7 +13,7 @@ A suite of Python utilities for musicians to manage their Boss RC-500 Loop Stati
 
 ---
 
-## 🚀 Unified GUI
+## Unified GUI
 The tool is now a single, tabbed application handling all functions.
 
 ### 1. Connect & Run
@@ -31,7 +31,7 @@ python BossRC500GUI.py
 
 ### 3. Tab: Import / Restore
 - **Audio Injection:** Select a folder containing your exported WAV files. The tool parses filenames (e.g., `Memory_01...`) and copies the audio back to the correct slot on the pedal.
-- **⚠️ Limitation:** This restores **Audio Only**. The pedal does not allow external tools to write database metadata safely.
+- ** Limitation:** This restores **Audio Only**. The pedal does not allow external tools to write database metadata safely.
   - The pedal will play the new audio but may display the old song name.
   - You must manually rename the memory on the pedal to match.
 
@@ -48,7 +48,7 @@ python BossRC500GUI.py
 ## Why I made this
 The default Boss Tone Studio software is slow and often requires handling tracks individually. This script leverages the RC-500's Mass Storage mode to grab everything at once, organizing it with useful filenames for immediate use in a DAW.
 
-## ⚠️ Disclaimer
+## Disclaimer
 **THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.**
 This tool performs file operations including **PERMANENT DELETION** of files on your pedal.
 - The authors are not responsible for lost data.
