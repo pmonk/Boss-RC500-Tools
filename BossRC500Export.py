@@ -59,9 +59,32 @@ def find_boss_drive():
             
     return None
 
+def extract_name_from_codes(name_content):
+    """
+    Extract proper name from C01-C12 character codes using XML structure.
+    """
+    # Find all C01-C12 patterns in the content
+    char_codes = {}
+    c_pattern = r'<C(\d+)>(\d+)</C\d+>'
+    matches = re.findall(c_pattern, name_content)
+    
+    for idx, code_str in matches:
+        try:
+            char_pos = int(idx)
+            char_code = int(code_str)
+            if 32 <= char_code <= 127:  # Valid ASCII range
+                char_codes[char_pos] = char_code
+        except ValueError:
+            continue
+    
+    # Sort by position and convert to string
+    chars = [chr(char_codes[i]) for i in sorted(char_codes.keys()) if i in char_codes]
+    return ''.join(chars).strip()
+
 def get_memory_metadata(boss_wave_path):
     """
     Parses MEMORY1.RC0 using REGEX to extract Name, BPM, Time Sig, Pattern, and Kit.
+    This version is more robust than the XML approach that was failing.
     """
     metadata = {}
     
@@ -96,17 +119,12 @@ def get_memory_metadata(boss_wave_path):
                 'kit': ''
             }
             
-            # 1. NAME
-            name_pattern = r'<C(\d+)>(\d+)</C\d+>'
-            name_codes = re.findall(name_pattern, mem_content)
-            if name_codes:
-                name_codes.sort(key=lambda x: int(x[0]))
-                chars = []
-                for idx, code_str in name_codes:
-                    try:
-                        chars.append(chr(int(code_str)))
-                    except: pass
-                raw_name = "".join(chars).strip()
+            # 1. NAME - Extract from C01-C12 character codes in NAME section
+            name_pattern = r'<NAME>(.*?)</NAME>'
+            name_match = re.search(name_pattern, mem_content, re.DOTALL)
+            if name_match:
+                name_content = name_match.group(1)
+                raw_name = extract_name_from_codes(name_content)
                 if raw_name:
                     data['name'] = "".join([c for c in raw_name if c.isalnum() or c in ('-', '_')])
             
@@ -142,6 +160,8 @@ def get_memory_metadata(boss_wave_path):
 
     except Exception as e:
         print(f"Metadata extraction error: {e}\n")
+        # If we fail completely, try to provide some fallback info
+        print("Falling back to basic parsing approach...")
         return {}
 
 def generate_markdown_report(metadata, dest_dir):

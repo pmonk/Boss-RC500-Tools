@@ -64,6 +64,28 @@ def get_time_signature_map(beat_val):
     }
     return beat_map.get(beat_val, "?")
 
+def extract_name_from_codes(name_content):
+    """
+    Extract proper name from C01-C12 character codes using XML structure.
+    """
+    # Find all C01-C12 patterns in the content
+    char_codes = {}
+    c_pattern = r'<C(\d+)>(\d+)</C\d+>'
+    matches = re.findall(c_pattern, name_content)
+    
+    for idx, code_str in matches:
+        try:
+            char_pos = int(idx)
+            char_code = int(code_str)
+            if 32 <= char_code <= 127:  # Valid ASCII range
+                char_codes[char_pos] = char_code
+        except ValueError:
+            continue
+    
+    # Sort by position and convert to string
+    chars = [chr(char_codes[i]) for i in sorted(char_codes.keys()) if i in char_codes]
+    return ''.join(chars).strip()
+
 def parse_metadata(boss_wave_path, logger_func):
     """Parses MEMORY1.RC0 for Name, BPM, Time Sig, and Context."""
     metadata = {}
@@ -87,14 +109,22 @@ def parse_metadata(boss_wave_path, logger_func):
             mem_id = int(mem_id_str) + 1
             data = {'name': '', 'bpm': '', 'ts': '', 'ts_raw': '', 'pattern': '', 'kit': ''}
             
-            # Name
-            name_codes = re.findall(r'<C(\d+)>(\d+)</C\d+>', mem_content)
-            if name_codes:
-                name_codes.sort(key=lambda x: int(x[0]))
-                chars = [chr(int(c)) for _, c in name_codes]
-                raw_name = "".join(chars).strip()
-                data['name'] = "".join([c for c in raw_name if c.isalnum() or c in ('-', '_', ' ')])
-
+                      # Name - Use the improved extraction method
+            name_pattern = r'<NAME>(.*?)</NAME>'
+            name_match = re.search(name_pattern, mem_content, re.DOTALL)
+            if name_match:
+                name_content = name_match.group(1)
+                raw_name = extract_name_from_codes(name_content)
+                if raw_name:
+                    data['name'] = "".join([c for c in raw_name if c.isalnum() or c in ('-', '_', ' ')])
+            else:
+                # Fallback to original method for backward compatibility
+                name_codes = re.findall(r'<C(\d+)>(\d+)</C\d+>', mem_content)
+                if name_codes:
+                    name_codes.sort(key=lambda x: int(x[0]))
+                    chars = [chr(int(c)) for _, c in name_codes]
+                    raw_name = "".join(chars).strip()
+                    data['name'] = "".join([c for c in raw_name if c.isalnum() or c in ('-', '_', ' ')])
             # BPM
             tempo = re.search(r'<Tempo>(\d+)</Tempo>', mem_content)
             if tempo:
@@ -711,7 +741,6 @@ class BossRC500App:
                 self.log(f"[FOUND] {folder_name}")
         
         self.log(f"Total found: {len(targets)}")
-
     def confirm_delete(self):
         targets = self.get_delete_targets()
         if not targets:
