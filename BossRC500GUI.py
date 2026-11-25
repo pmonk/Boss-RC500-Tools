@@ -4,7 +4,7 @@ Boss RC-500 Tools (Unified GUI)
 A utility to Export, Import (Restore), and DELETE loops.
 
 Features:
-- Auto-detects ROLAND/WAVE drive.
+- Auto-detects ROLAND/WAVE drive (Windows, macOS, Linux).
 - BACKUP: "All" or "Range". Extracts Name, BPM, Time Sig.
 - RESTORE: Inject WAV files back into specific slots (Audio Only).
 - DELETE: Preview Name/Number before deleting.
@@ -29,27 +29,18 @@ WARNING:
 This tool can PERMANENTLY DELETE files from your device.
 The authors are not responsible for lost data.
 ALWAYS BACKUP YOUR LOOPS BEFORE USING THE DELETE FUNCTION.
-
-Boss RC-500 Tools (Unified GUI)
--------------------------------
-A utility to Export, Import (Restore), and DELETE loops.
-
-Features:
-- Auto-detects ROLAND/WAVE drive.
-- BACKUP: "All" or "Range". Extracts Name, BPM, Time Sig.
-- RESTORE: Inject WAV files back into specific slots (Audio Only).
-- DELETE: Preview Name/Number before deleting.
-
-Copyright (C) 2026 [pmonk.com]
 """
 
 import os
+import sys
 import shutil
 import string
+import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from datetime import datetime
+from pathlib import Path
 import re
 import webbrowser
 
@@ -68,7 +59,6 @@ def extract_name_from_codes(name_content):
     """
     Extract proper name from C01-C12 character codes using XML structure.
     """
-    # Find all C01-C12 patterns in the content
     char_codes = {}
     c_pattern = r'<C(\d+)>(\d+)</C\d+>'
     matches = re.findall(c_pattern, name_content)
@@ -82,7 +72,6 @@ def extract_name_from_codes(name_content):
         except ValueError:
             continue
     
-    # Sort by position and convert to string
     chars = [chr(char_codes[i]) for i in sorted(char_codes.keys()) if i in char_codes]
     return ''.join(chars).strip()
 
@@ -90,7 +79,8 @@ def parse_metadata(boss_wave_path, logger_func):
     """Parses MEMORY1.RC0 for Name, BPM, Time Sig, and Context."""
     metadata = {}
     try:
-        data_dir = os.path.abspath(os.path.join(boss_wave_path, "..", "DATA"))
+        roland_dir = os.path.dirname(os.path.normpath(boss_wave_path))
+        data_dir = os.path.join(roland_dir, "DATA")
         xml_path = os.path.join(data_dir, "MEMORY1.RC0")
         
         if not os.path.exists(xml_path):
@@ -109,7 +99,7 @@ def parse_metadata(boss_wave_path, logger_func):
             mem_id = int(mem_id_str) + 1
             data = {'name': '', 'bpm': '', 'ts': '', 'ts_raw': '', 'pattern': '', 'kit': ''}
             
-                      # Name - Use the improved extraction method
+            # Name - Use the improved extraction method
             name_pattern = r'<NAME>(.*?)</NAME>'
             name_match = re.search(name_pattern, mem_content, re.DOTALL)
             if name_match:
@@ -125,6 +115,7 @@ def parse_metadata(boss_wave_path, logger_func):
                     chars = [chr(int(c)) for _, c in name_codes]
                     raw_name = "".join(chars).strip()
                     data['name'] = "".join([c for c in raw_name if c.isalnum() or c in ('-', '_', ' ')])
+
             # BPM
             tempo = re.search(r'<Tempo>(\d+)</Tempo>', mem_content)
             if tempo:
@@ -275,8 +266,9 @@ class BossRC500App:
         conn_frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(conn_frame, text="Pedal Drive:").pack(side="left")
-        ttk.Entry(conn_frame, textvariable=self.source_dir, width=40, state="readonly").pack(side="left", padx=5)
-        ttk.Button(conn_frame, text="Rescan", command=self.scan_drive).pack(side="left")
+        ttk.Entry(conn_frame, textvariable=self.source_dir, width=40, state="readonly").pack(side="left", padx=5, fill="x", expand=True)
+        ttk.Button(conn_frame, text="Rescan", command=self.scan_drive).pack(side="left", padx=(0, 5))
+        ttk.Button(conn_frame, text="Browse...", command=self.browse_pedal_drive).pack(side="left")
 
         # 2. Tabs
         self.notebook = ttk.Notebook(self.root)
@@ -407,13 +399,41 @@ class BossRC500App:
             self.log_text.config(state="disabled")
         self.root.after(0, _append)
 
+    def get_candidate_roots(self):
+        """Return possible mount roots across Windows, macOS, and Linux."""
+        roots = []
+        if os.name == "nt":
+            roots.extend([f"{d}:/" for d in string.ascii_uppercase if os.path.exists(f"{d}:/")])
+        elif sys.platform == "darwin":
+            volumes_dir = "/Volumes"
+            if os.path.isdir(volumes_dir):
+                try:
+                    for entry in os.listdir(volumes_dir):
+                        full_path = os.path.join(volumes_dir, entry)
+                        if os.path.isdir(full_path):
+                            roots.append(full_path)
+                except PermissionError:
+                    pass
+        else:
+            # Linux / BSD standard mount points
+            user = os.environ.get("USER", "")
+            for base in (f"/media/{user}", f"/run/media/{user}", "/media", "/mnt"):
+                if os.path.isdir(base):
+                    try:
+                        for entry in os.listdir(base):
+                            full_path = os.path.join(base, entry)
+                            if os.path.isdir(full_path):
+                                roots.append(full_path)
+                    except PermissionError:
+                        pass
+        return roots
+
     def scan_drive(self):
         self.log("Scanning for Boss RC-500...")
         found = False
-        available_drives = [f"{d}:/" for d in string.ascii_uppercase if os.path.exists(f"{d}:/")]
         
-        for drive in available_drives:
-            candidate = os.path.join(drive, "ROLAND", "WAVE")
+        for mount_root in self.get_candidate_roots():
+            candidate = os.path.join(mount_root, "ROLAND", "WAVE")
             if os.path.exists(candidate):
                 self.source_dir.set(candidate)
                 self.log(f"Found pedal at: {candidate}")
@@ -423,8 +443,30 @@ class BossRC500App:
         
         if not found:
             self.source_dir.set("")
-            self.log("Error: Pedal not found.")
+            self.log("Error: Pedal not found. Put RC-500 in STORAGE mode or use Browse...")
             self.status_msg.set("Not Connected")
+
+    def browse_pedal_drive(self):
+        initial = "/Volumes" if sys.platform == "darwin" else "/"
+        selected = filedialog.askdirectory(title="Select RC-500 Drive or ROLAND/WAVE Folder", initialdir=initial)
+        if not selected:
+            return
+        
+        # Allow selecting the drive root, ROLAND folder, or ROLAND/WAVE directly
+        norm = os.path.normpath(selected)
+        if os.path.basename(norm).upper() == "WAVE" and os.path.basename(os.path.dirname(norm)).upper() == "ROLAND":
+            wave_path = norm
+        elif os.path.basename(norm).upper() == "ROLAND" and os.path.isdir(os.path.join(norm, "WAVE")):
+            wave_path = os.path.join(norm, "WAVE")
+        elif os.path.isdir(os.path.join(norm, "ROLAND", "WAVE")):
+            wave_path = os.path.join(norm, "ROLAND", "WAVE")
+        else:
+            messagebox.showerror("Invalid Folder", "Could not find a ROLAND/WAVE folder inside the selected directory.")
+            return
+
+        self.source_dir.set(wave_path)
+        self.log(f"Selected pedal at: {wave_path}")
+        self.status_msg.set(f"Connected: {wave_path}")
 
     def browse_dest(self):
         d = filedialog.askdirectory(initialdir=self.dest_dir.get())
@@ -614,11 +656,16 @@ class BossRC500App:
 
     def open_html_report(self):
         if self.html_report_path and os.path.exists(self.html_report_path):
-            webbrowser.open(f"file://{self.html_report_path}")
+            webbrowser.open(Path(self.html_report_path).resolve().as_uri())
 
     def open_backup_folder(self):
         if self.final_dest_dir and os.path.exists(self.final_dest_dir):
-            os.startfile(self.final_dest_dir)
+            if os.name == "nt":
+                os.startfile(self.final_dest_dir)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", self.final_dest_dir], check=False)
+            else:
+                subprocess.run(["xdg-open", self.final_dest_dir], check=False)
 
     # --- IMPORT LOGIC ---
 
@@ -687,7 +734,7 @@ class BossRC500App:
                     self.log(f"Skipped unknown file format: {f}")
 
             self.log(f"--- IMPORT COMPLETE: {count} files restored ---")
-            messagebox.showinfo("Import Complete", f"Restored {count} audio files.\n\nRemember to rename them on the pedal!")
+            self.root.after(0, lambda: messagebox.showinfo("Import Complete", f"Restored {count} audio files.\n\nRemember to rename them on the pedal!"))
 
         except Exception as e:
             self.log(f"Import Error: {e}")
@@ -741,6 +788,7 @@ class BossRC500App:
                 self.log(f"[FOUND] {folder_name}")
         
         self.log(f"Total found: {len(targets)}")
+
     def confirm_delete(self):
         targets = self.get_delete_targets()
         if not targets:
