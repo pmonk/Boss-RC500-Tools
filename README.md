@@ -1,6 +1,6 @@
 # Boss RC-500 Tools
 
-*note: The .exe probably will be blocked on Windows 'till I jump through SignPath hoops so I recommend running the Python version for now.
+*note: I removed the pre-compiled .exe releases since Microsoft blocks unsigned executables without paid code signing—just run the Python script directly instead.
 
 A suite of Python utilities for musicians to manage their Boss RC-500 Loop Station. Back up all your loops instantly, restore audio to specific slots, or mass-delete unwanted tracks without the slow official software.
 
