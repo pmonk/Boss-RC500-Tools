@@ -20,7 +20,7 @@ The tool is now a single, tabbed application handling all functions.
 
 ### 1. Connect & Run
 1. **Connect your RC-500** via USB and ensure it is in **STORAGE** mode.
-   *(Menu > Setup > USB > USB Mode > STORAGE)*
+   *(MENU > GENERAL > STORAGE > CONNECTING... or Menu > Setup > USB > USB Mode > STORAGE depending on firmware)*
 2. **Run the script**:
 ```bash
 python BossRC500GUI.py
