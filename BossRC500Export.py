@@ -14,6 +14,7 @@ the Free Software Foundation, either version 3 of the License, or
 """
 
 import os
+import sys
 import shutil
 import string
 import re
@@ -45,25 +46,65 @@ def get_time_signature_map(beat_val):
     }
     return beat_map.get(beat_val, "?")
 
-def find_boss_drive():
+
+def get_candidate_roots():
     """
-    Scans Windows drive letters to find the one containing the 
-    Boss RC-500 directory structure (ROLAND/WAVE).
+    Returns possible mount roots across Windows, macOS, and Linux.
     """
-    available_drives = [f"{d}:/" for d in string.ascii_uppercase if os.path.exists(f"{d}:/")]
-    
-    for drive in available_drives:
-        candidate_path = os.path.join(drive, "ROLAND", "WAVE")
+    roots = []
+    if os.name == "nt":
+        roots.extend([f"{d}:/" for d in string.ascii_uppercase if os.path.exists(f"{d}:/")])
+    elif sys.platform == "darwin":
+        volumes_dir = "/Volumes"
+        if os.path.isdir(volumes_dir):
+            try:
+                for entry in os.listdir(volumes_dir):
+                    full_path = os.path.join(volumes_dir, entry)
+                    if os.path.isdir(full_path):
+                        roots.append(full_path)
+            except PermissionError:
+                pass
+    else:
+        user = os.environ.get("USER", "")
+        for base in (f"/media/{user}", f"/run/media/{user}", "/media", "/mnt"):
+            if os.path.isdir(base):
+                try:
+                    for entry in os.listdir(base):
+                        full_path = os.path.join(base, entry)
+                        if os.path.isdir(full_path):
+                            roots.append(full_path)
+                except PermissionError:
+                    pass
+    return roots
+
+
+def find_boss_drive(manual_path=None):
+    """
+    Scans mounted drives/volumes across Windows, macOS, and Linux to find
+    the Boss RC-500 directory structure (ROLAND/WAVE), or validates a manual path.
+    """
+    if manual_path:
+        norm = os.path.normpath(manual_path)
+        if os.path.basename(norm).upper() == "WAVE" and os.path.basename(os.path.dirname(norm)).upper() == "ROLAND":
+            return norm
+        if os.path.basename(norm).upper() == "ROLAND" and os.path.isdir(os.path.join(norm, "WAVE")):
+            return os.path.join(norm, "WAVE")
+        if os.path.isdir(os.path.join(norm, "ROLAND", "WAVE")):
+            return os.path.join(norm, "ROLAND", "WAVE")
+        return None
+
+    for mount_root in get_candidate_roots():
+        candidate_path = os.path.join(mount_root, "ROLAND", "WAVE")
         if os.path.exists(candidate_path):
             return candidate_path
-            
+
     return None
+
 
 def extract_name_from_codes(name_content):
     """
     Extract proper name from C01-C12 character codes using XML structure.
     """
-    # Find all C01-C12 patterns in the content
     char_codes = {}
     c_pattern = r'<C(\d+)>(\d+)</C\d+>'
     matches = re.findall(c_pattern, name_content)
@@ -77,19 +118,19 @@ def extract_name_from_codes(name_content):
         except ValueError:
             continue
     
-    # Sort by position and convert to string
     chars = [chr(char_codes[i]) for i in sorted(char_codes.keys()) if i in char_codes]
     return ''.join(chars).strip()
+
 
 def get_memory_metadata(boss_wave_path):
     """
     Parses MEMORY1.RC0 using REGEX to extract Name, BPM, Time Sig, Pattern, and Kit.
-    This version is more robust than the XML approach that was failing.
     """
     metadata = {}
     
     try:
-        data_dir = os.path.abspath(os.path.join(boss_wave_path, "..", "DATA"))
+        roland_dir = os.path.dirname(os.path.normpath(boss_wave_path))
+        data_dir = os.path.join(roland_dir, "DATA")
         xml_path = os.path.join(data_dir, "MEMORY1.RC0")
         
         if not os.path.exists(xml_path):
@@ -101,7 +142,6 @@ def get_memory_metadata(boss_wave_path):
         with open(xml_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
         
-        # Find all <mem id="X"> blocks
         mem_pattern = r'<mem id="(\d+)">(.*?)</mem>'
         mem_blocks = re.findall(mem_pattern, content, re.DOTALL)
         
@@ -143,8 +183,8 @@ def get_memory_metadata(boss_wave_path):
             if beat_match:
                 try:
                     beat_val = int(beat_match.group(1))
-                    data['ts_raw'] = beat_val
-                    data['ts'] = get_time_signature_map(beat_val)
+                    data['ts_raw'] = val = beat_val
+                    data['ts'] = get_time_signature_map(val)
                 except: pass
             
             # 4. Pattern & Kit (Context)
@@ -160,13 +200,13 @@ def get_memory_metadata(boss_wave_path):
 
     except Exception as e:
         print(f"Metadata extraction error: {e}\n")
-        # If we fail completely, try to provide some fallback info
         print("Falling back to basic parsing approach...")
         return {}
 
+
 def generate_markdown_report(metadata, dest_dir):
     """
-    Generates a README.md file with a table of all loop details.
+    Generates a Markdown report with a table of all loop details.
     """
     report_path = os.path.join(dest_dir, "RC500_Library_Report.md")
     
@@ -174,37 +214,36 @@ def generate_markdown_report(metadata, dest_dir):
         f.write("# Boss RC-500 Library Report\n")
         f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         
-        # Table Header
         f.write("| Memory | Name | BPM | Beat Value (XML) | Time Signature | Context / Notes (Pattern/Kit) |\n")
         f.write("| :--- | :--- | :--- | :---: | :---: | :--- |\n")
         
-        # Sort by Memory ID
         sorted_ids = sorted(metadata.keys())
         
         for mem_id in sorted_ids:
             m = metadata[mem_id]
-            # Format Context string
             context = []
             if m['pattern']: context.append(f"Pattern {m['pattern']}")
             if m['kit']: context.append(f"Kit {m['kit']}")
             context_str = ", ".join(context) if context else "-"
 
-            # Format Row
             row = f"| {mem_id:02d} | {m['name'] or 'Empty'} | {m['bpm_raw']} | {m['ts_raw']} | {m['ts']} | {context_str} |\n"
             f.write(row)
             
     print(f"Report generated: {report_path}")
 
+
 # --- MAIN EXECUTION ---
 
 if __name__ == "__main__":
-    # 1. Auto-detect source directory
+    # 1. Auto-detect source directory (or accept optional path argument)
+    manual_arg = sys.argv[1] if len(sys.argv) > 1 else None
     print("Scanning for Boss RC-500...")
-    source_dir = find_boss_drive()
+    source_dir = find_boss_drive(manual_arg)
 
     if not source_dir:
         print("Error: Could not find a drive with 'ROLAND/WAVE' folder.")
         print("Please ensure the RC-500 is in STORAGE mode and connected via USB.")
+        print("Tip: You can also pass the path directly, e.g.: python BossRC500Export.py /Volumes/BOSS_RC-500")
         input("Press Enter to exit...")
         exit()
 
@@ -246,7 +285,6 @@ if __name__ == "__main__":
                         track_num = parts[1]
                         slot_int = int(memory_slot)
                         
-                        # Build filename
                         base_name_parts = [f"Memory_{memory_slot}"]
                         if slot_int in memory_metadata:
                             meta = memory_metadata[slot_int]
@@ -255,7 +293,6 @@ if __name__ == "__main__":
                             if meta['bpm']:
                                 base_name_parts.append(meta['bpm'])
                             if meta['ts']:
-                                # Replace slash with dash for filename safety
                                 safe_ts = meta['ts'].replace('/', '-')
                                 base_name_parts.append(safe_ts)
 
