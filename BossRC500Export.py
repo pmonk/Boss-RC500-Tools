@@ -166,7 +166,7 @@ def get_memory_metadata(boss_wave_path):
                 name_content = name_match.group(1)
                 raw_name = extract_name_from_codes(name_content)
                 if raw_name:
-                    data['name'] = "".join([c for c in raw_name if c.isalnum() or c in ('-', '_')])
+                    data['name'] = "".join([c for c in raw_name if c.isalnum() or c in ('-', '_', ' ')])
             
             # 2. BPM
             tempo_match = re.search(r'<Tempo>(\d+)</Tempo>', mem_content)
@@ -176,7 +176,8 @@ def get_memory_metadata(boss_wave_path):
                     bpm = raw_bpm / 10.0
                     data['bpm_raw'] = bpm
                     data['bpm'] = f"{int(bpm)}bpm" if bpm.is_integer() else f"{bpm}bpm"
-                except: pass
+                except Exception:
+                    pass
 
             # 3. Time Signature
             beat_match = re.search(r'<Beat>(\d+)</Beat>', mem_content)
@@ -185,14 +186,17 @@ def get_memory_metadata(boss_wave_path):
                     beat_val = int(beat_match.group(1))
                     data['ts_raw'] = val = beat_val
                     data['ts'] = get_time_signature_map(val)
-                except: pass
+                except Exception:
+                    pass
             
             # 4. Pattern & Kit (Context)
             pat_match = re.search(r'<Pattern>(\d+)</Pattern>', mem_content)
-            if pat_match: data['pattern'] = pat_match.group(1)
+            if pat_match:
+                data['pattern'] = pat_match.group(1)
             
             kit_match = re.search(r'<Kit>(\d+)</Kit>', mem_content)
-            if kit_match: data['kit'] = kit_match.group(1)
+            if kit_match:
+                data['kit'] = kit_match.group(1)
 
             metadata[mem_id] = data
         
@@ -222,8 +226,10 @@ def generate_markdown_report(metadata, dest_dir):
         for mem_id in sorted_ids:
             m = metadata[mem_id]
             context = []
-            if m['pattern']: context.append(f"Pattern {m['pattern']}")
-            if m['kit']: context.append(f"Kit {m['kit']}")
+            if m['pattern']:
+                context.append(f"Pattern {m['pattern']}")
+            if m['kit']:
+                context.append(f"Kit {m['kit']}")
             context_str = ", ".join(context) if context else "-"
 
             row = f"| {mem_id:02d} | {m['name'] or 'Empty'} | {m['bpm_raw']} | {m['ts_raw']} | {m['ts']} | {context_str} |\n"
@@ -243,9 +249,9 @@ if __name__ == "__main__":
     if not source_dir:
         print("Error: Could not find a drive with 'ROLAND/WAVE' folder.")
         print("Please ensure the RC-500 is in STORAGE mode and connected via USB.")
-        print("Tip: You can also pass the path directly, e.g.: python BossRC500Export.py /Volumes/BOSS_RC-500")
+        print("Tip: You can also pass the path directly, e.g.: python3 BossRC500Export.py /Volumes/BOSS_RC-500")
         input("Press Enter to exit...")
-        exit()
+        sys.exit(1)
 
     print(f"Found Boss RC-500 at: {source_dir}")
 
@@ -276,7 +282,7 @@ if __name__ == "__main__":
     
     for root, dirs, files in os.walk(source_dir):
         for file in files:
-            if file.lower().endswith('.wav'):
+            if file.lower().endswith('.wav') and not file.startswith('._'):
                 folder_name_raw = os.path.basename(root)
                 try:
                     parts = folder_name_raw.split('_')

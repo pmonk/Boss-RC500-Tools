@@ -105,9 +105,9 @@ source_dir = find_boss_drive(manual_arg)
 
 if not source_dir:
     print("Error: Boss RC-500 not found.")
-    print("Tip: You can pass the mount path directly, e.g.: python BossRC500Delete.py /Volumes/BOSS_RC-500")
+    print("Tip: You can pass the mount path directly, e.g.: python3 BossRC500Delete.py /Volumes/BOSS_RC-500")
     input("Press Enter to exit...")
-    exit()
+    sys.exit(1)
 
 print(f"Target: {source_dir}")
 
@@ -117,29 +117,29 @@ target_slots = parse_range(range_input)
 
 if not target_slots:
     print("No valid slots selected.")
-    exit()
+    sys.exit(1)
 
-# Scan for targets
+# Scan for targets (top-level slot folders in ROLAND/WAVE only)
 folders_to_delete = []
 print("\n--- Scanning for targets ---")
 
-for root, dirs, files in os.walk(source_dir):
-    folder_name = os.path.basename(root)
+for entry in sorted(os.listdir(source_dir)):
+    full_path = os.path.join(source_dir, entry)
     # Folder format is "001_1", "001_2", etc.
-    if "_" in folder_name:
+    if os.path.isdir(full_path) and "_" in entry and not entry.startswith("."):
         try:
-            slot_str = folder_name.split("_")[0]
+            slot_str = entry.split("_")[0]
             slot_num = int(slot_str)
             
             if slot_num in target_slots:
-                folders_to_delete.append(root)
-                print(f"[FOUND] Memory {slot_num}: {folder_name}")
+                folders_to_delete.append(full_path)
+                print(f"[FOUND] Memory {slot_num}: {entry}")
         except ValueError:
             pass
 
 if not folders_to_delete:
     print("\nNo matching folders found on the pedal.")
-    exit()
+    sys.exit(0)
 
 # --- CONFIRMATION ---
 print(f"\nWARNING: You are about to DELETE {len(folders_to_delete)} folders/tracks.")

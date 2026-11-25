@@ -535,7 +535,7 @@ class BossRC500App:
             count = 0
             for root, dirs, files in os.walk(source):
                 for file in files:
-                    if file.lower().endswith('.wav'):
+                    if file.lower().endswith('.wav') and not file.startswith('._'):
                         try:
                             folder_raw = os.path.basename(root)
                             parts = folder_raw.split('_')
@@ -610,7 +610,7 @@ class BossRC500App:
             count = 0
             for root, dirs, files in os.walk(source):
                 for file in files:
-                    if file.lower().endswith('.wav'):
+                    if file.lower().endswith('.wav') and not file.startswith('._'):
                         try:
                             folder_raw = os.path.basename(root)
                             parts = folder_raw.split('_')
@@ -690,7 +690,7 @@ class BossRC500App:
             
             self.log("--- STARTING IMPORT ---")
             
-            files = [f for f in os.listdir(backup_folder) if f.lower().endswith('.wav')]
+            files = [f for f in os.listdir(backup_folder) if f.lower().endswith('.wav') and not f.startswith('._')]
             if not files:
                 self.log("No WAV files found in backup folder.")
                 return
@@ -745,19 +745,19 @@ class BossRC500App:
 
     def get_delete_targets(self):
         source = self.source_dir.get()
-        if not source: return []
+        if not source or not os.path.isdir(source): return []
         range_str = self.delete_range_var.get()
         if not range_str: return []
         
         targets = self.parse_range(range_str)
         folders_found = []
-        for root, dirs, files in os.walk(source):
-            folder_name = os.path.basename(root)
-            if "_" in folder_name:
+        for entry in sorted(os.listdir(source)):
+            full_path = os.path.join(source, entry)
+            if os.path.isdir(full_path) and "_" in entry and not entry.startswith("."):
                 try:
-                    slot = int(folder_name.split("_")[0])
+                    slot = int(entry.split("_")[0])
                     if slot in targets:
-                        folders_found.append(root)
+                        folders_found.append(full_path)
                 except ValueError: pass
         return folders_found
 
