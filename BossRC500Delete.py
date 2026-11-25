@@ -26,21 +26,64 @@ The authors are not responsible for lost data.
 ALWAYS BACKUP YOUR LOOPS BEFORE USING THE DELETE FUNCTION.
 """
 import os
+import sys
 import shutil
 import string
 
-def find_boss_drive():
-    available_drives = [f"{d}:/" for d in string.ascii_uppercase if os.path.exists(f"{d}:/")]
-    for drive in available_drives:
-        if os.path.exists(os.path.join(drive, "ROLAND", "WAVE")):
-            return os.path.join(drive, "ROLAND", "WAVE")
+
+def get_candidate_roots():
+    roots = []
+    if os.name == "nt":
+        roots.extend([f"{d}:/" for d in string.ascii_uppercase if os.path.exists(f"{d}:/")])
+    elif sys.platform == "darwin":
+        volumes_dir = "/Volumes"
+        if os.path.isdir(volumes_dir):
+            try:
+                for entry in os.listdir(volumes_dir):
+                    full_path = os.path.join(volumes_dir, entry)
+                    if os.path.isdir(full_path):
+                        roots.append(full_path)
+            except PermissionError:
+                pass
+    else:
+        user = os.environ.get("USER", "")
+        for base in (f"/media/{user}", f"/run/media/{user}", "/media", "/mnt"):
+            if os.path.isdir(base):
+                try:
+                    for entry in os.listdir(base):
+                        full_path = os.path.join(base, entry)
+                        if os.path.isdir(full_path):
+                            roots.append(full_path)
+                except PermissionError:
+                    pass
+    return roots
+
+
+def find_boss_drive(manual_path=None):
+    if manual_path:
+        norm = os.path.normpath(manual_path)
+        if os.path.basename(norm).upper() == "WAVE" and os.path.basename(os.path.dirname(norm)).upper() == "ROLAND":
+            return norm
+        if os.path.basename(norm).upper() == "ROLAND" and os.path.isdir(os.path.join(norm, "WAVE")):
+            return os.path.join(norm, "WAVE")
+        if os.path.isdir(os.path.join(norm, "ROLAND", "WAVE")):
+            return os.path.join(norm, "ROLAND", "WAVE")
+        return None
+
+    for mount_root in get_candidate_roots():
+        candidate_path = os.path.join(mount_root, "ROLAND", "WAVE")
+        if os.path.exists(candidate_path):
+            return candidate_path
     return None
+
 
 def parse_range(range_str):
     ids = set()
     parts = range_str.split(',')
     for part in parts:
         part = part.strip()
+        if not part:
+            continue
         if '-' in part:
             try:
                 start, end = map(int, part.split('-'))
@@ -54,12 +97,15 @@ def parse_range(range_str):
                 continue
     return sorted(list(ids))
 
+
 # --- MAIN ---
 print("--- Boss RC-500 Mass Deleter ---")
-source_dir = find_boss_drive()
+manual_arg = sys.argv[1] if len(sys.argv) > 1 else None
+source_dir = find_boss_drive(manual_arg)
 
 if not source_dir:
     print("Error: Boss RC-500 not found.")
+    print("Tip: You can pass the mount path directly, e.g.: python BossRC500Delete.py /Volumes/BOSS_RC-500")
     input("Press Enter to exit...")
     exit()
 
@@ -97,7 +143,7 @@ if not folders_to_delete:
 
 # --- CONFIRMATION ---
 print(f"\nWARNING: You are about to DELETE {len(folders_to_delete)} folders/tracks.")
-print("Make sure you have exported any loops you want to keep.")  # <--- NEW WARNING
+print("Make sure you have exported any loops you want to keep.")
 print("This cannot be undone.")
 
 confirm = input("Type 'DELETE' to confirm (or anything else to cancel): ")
@@ -106,7 +152,7 @@ if confirm == "DELETE":
     print("\nDeleting...")
     for folder in folders_to_delete:
         try:
-            shutil.rmtree(folder) # PERMANENT DELETE
+            shutil.rmtree(folder)  # PERMANENT DELETE
             print(f"Deleted: {folder}")
         except Exception as e:
             print(f"Error deleting {folder}: {e}")
