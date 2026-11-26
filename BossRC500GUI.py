@@ -6,7 +6,7 @@ A utility to Export, Import (Restore), and DELETE loops.
 Features:
 - Auto-detects ROLAND/WAVE drive (Windows, macOS, Linux).
 - BACKUP: "All" or "Range". Extracts Name, BPM, Time Sig.
-- RESTORE: Inject WAV files back into specific slots (Audio Only).
+- RESTORE: Inject specific WAV files or slot ranges back into the pedal (Audio Only).
 - DELETE: Preview Name/Number before deleting.
 
 Copyright (C) 2026 [pmonk.com]
@@ -233,7 +233,7 @@ class BossRC500App:
     def __init__(self, root):
         self.root = root
         self.root.title("Boss RC-500 Tools")
-        self.root.geometry("680x720")
+        self.root.geometry("680x760")
         
         # Style
         self.style = ttk.Style()
@@ -242,7 +242,10 @@ class BossRC500App:
         # --- Variables ---
         self.source_dir = tk.StringVar()
         self.dest_dir = tk.StringVar(value=os.path.join(os.getcwd(), "Backups"))
-        self.import_source_dir = tk.StringVar()
+        self.import_mode_var = tk.StringVar(value="files")  # "files" or "folder"
+        self.import_source_display = tk.StringVar()
+        self.selected_import_files = []
+        self.import_range_var = tk.StringVar()
         
         self.status_msg = tk.StringVar(value="Ready to scan.")
         self.is_running = False
@@ -250,7 +253,7 @@ class BossRC500App:
         self.final_dest_dir = None
         
         # Backup Logic Vars
-        self.backup_mode_var = tk.StringVar(value="all") # "all" or "range"
+        self.backup_mode_var = tk.StringVar(value="all")  # "all" or "range"
         self.backup_range_var = tk.StringVar()
 
         # Delete Logic Vars
@@ -258,7 +261,7 @@ class BossRC500App:
 
         # --- Layout ---
         self.create_widgets()
-        self.scan_drive() # Auto-scan on startup
+        self.scan_drive()  # Auto-scan on startup
 
     def create_widgets(self):
         # 1. Connection Header
@@ -356,26 +359,45 @@ class BossRC500App:
         ttk.Label(self.tab_import, text="Import WAV files back to the Boss RC-500", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
         
         # Detailed Warning
-        warn_frame = ttk.LabelFrame(self.tab_import, text="LIMITATIONS & WARNINGS", padding=15)
-        warn_frame.pack(fill="x", pady=10)
+        warn_frame = ttk.LabelFrame(self.tab_import, text="LIMITATIONS & WARNINGS", padding=10)
+        warn_frame.pack(fill="x", pady=5)
         
-        ttk.Label(warn_frame, text="This feature restores AUDIO ONLY.", foreground="red", font=("Arial", 9, "bold")).pack(anchor="w", pady=(0,5))
+        ttk.Label(warn_frame, text="This feature restores AUDIO ONLY.", foreground="red", font=("Arial", 9, "bold")).pack(anchor="w", pady=(0, 3))
         ttk.Label(warn_frame, text="1. Metadata (Loop Name, BPM, Pattern) is NOT restored.").pack(anchor="w")
-        ttk.Label(warn_frame, text="2. The pedal will RETAIN whatever Name/Settings are currently in that slot.").pack(anchor="w")
-        ttk.Label(warn_frame, text="3. Result: You may hear new audio while seeing an old song name.").pack(anchor="w")
-        ttk.Label(warn_frame, text="4. You must rename the loop manually on the pedal to match the new audio.").pack(anchor="w", pady=(5,0))
+        ttk.Label(warn_frame, text="2. The pedal retains whatever Name/Settings are currently in that slot.").pack(anchor="w")
+        ttk.Label(warn_frame, text="3. Always eject the pedal drive cleanly before disconnecting USB.").pack(anchor="w")
 
-        # Source
-        src_frame = ttk.Frame(self.tab_import)
-        src_frame.pack(fill="x", pady=10)
-        ttk.Label(src_frame, text="Select Backup Folder (containing exported WAVs):").pack(anchor="w")
-        
+        # Source Selection
+        src_frame = ttk.LabelFrame(self.tab_import, text="Select Audio to Restore", padding=10)
+        src_frame.pack(fill="x", pady=5)
+
+        mode_row = ttk.Frame(src_frame)
+        mode_row.pack(fill="x", pady=(0, 5))
+        ttk.Radiobutton(
+            mode_row, text="Specific WAV File(s)", variable=self.import_mode_var,
+            value="files", command=self.toggle_import_mode
+        ).pack(side="left", padx=(0, 15))
+        ttk.Radiobutton(
+            mode_row, text="Backup Folder (with optional Slot Filter)", variable=self.import_mode_var,
+            value="folder", command=self.toggle_import_mode
+        ).pack(side="left")
+
         hbox = ttk.Frame(src_frame)
-        hbox.pack(fill="x")
-        ttk.Entry(hbox, textvariable=self.import_source_dir).pack(side="left", fill="x", expand=True)
+        hbox.pack(fill="x", pady=3)
+        ttk.Entry(hbox, textvariable=self.import_source_display, state="readonly").pack(side="left", fill="x", expand=True)
         ttk.Button(hbox, text="Browse...", command=self.browse_import_source).pack(side="right", padx=5)
 
-        ttk.Button(self.tab_import, text="RESTORE AUDIO TO PEDAL", command=self.start_import_thread).pack(fill="x", pady=20)
+        filter_row = ttk.Frame(src_frame)
+        filter_row.pack(fill="x", pady=(5, 0))
+        ttk.Label(filter_row, text="Slot Filter (Folder mode only):").pack(side="left")
+        self.entry_import_range = ttk.Entry(filter_row, textvariable=self.import_range_var, width=18, state="disabled")
+        self.entry_import_range.pack(side="left", padx=5)
+        ttk.Label(filter_row, text="(e.g. 97 or 1-5; blank = all)", font=("Arial", 9, "italic"), foreground="gray").pack(side="left")
+
+        btn_row = ttk.Frame(self.tab_import)
+        btn_row.pack(fill="x", pady=12)
+        ttk.Button(btn_row, text="Preview (Scan Only)", command=self.preview_import).pack(side="left", fill="x", expand=True, padx=5)
+        ttk.Button(btn_row, text="RESTORE AUDIO TO PEDAL", command=self.start_import_thread).pack(side="right", fill="x", expand=True, padx=5)
 
     def setup_delete_tab(self):
         ttk.Label(self.tab_delete, text="Delete Loops by Memory Number", font=("Arial", 10, "bold")).pack(anchor="w")
@@ -398,6 +420,25 @@ class BossRC500App:
             self.log_text.see("end")
             self.log_text.config(state="disabled")
         self.root.after(0, _append)
+
+    def clean_macos_dotfiles(self, pedal_wave_dir):
+        """Removes macOS AppleDouble (._*) sidecar files on the pedal drive to protect FAT32 structure."""
+        if sys.platform != "darwin" or not pedal_wave_dir:
+            return
+        try:
+            roland_dir = os.path.dirname(os.path.normpath(pedal_wave_dir))
+            drive_root = os.path.dirname(roland_dir)
+            if os.path.isdir(drive_root) and drive_root != "/Volumes":
+                subprocess.run(["dot_clean", "-m", drive_root], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for root_dir, _, files in os.walk(roland_dir):
+                for fname in files:
+                    if fname.startswith("._"):
+                        try:
+                            os.remove(os.path.join(root_dir, fname))
+                        except OSError:
+                            pass
+        except Exception:
+            pass
 
     def get_candidate_roots(self):
         """Return possible mount roots across Windows, macOS, and Linux."""
@@ -472,9 +513,34 @@ class BossRC500App:
         d = filedialog.askdirectory(initialdir=self.dest_dir.get())
         if d: self.dest_dir.set(d)
 
+    def toggle_import_mode(self):
+        self.selected_import_files = []
+        self.import_source_display.set("")
+        if self.import_mode_var.get() == "folder":
+            self.entry_import_range.config(state="normal")
+        else:
+            self.entry_import_range.config(state="disabled")
+
     def browse_import_source(self):
-        d = filedialog.askdirectory()
-        if d: self.import_source_dir.set(d)
+        if self.import_mode_var.get() == "files":
+            files = filedialog.askopenfilenames(
+                title="Select Exported WAV File(s) to Restore",
+                filetypes=[("WAV Audio Files", "*.wav *.WAV"), ("All Files", "*.*")]
+            )
+            if files:
+                self.selected_import_files = [
+                    f for f in files if not os.path.basename(f).startswith("._")
+                ]
+                if len(self.selected_import_files) == 1:
+                    self.import_source_display.set(self.selected_import_files[0])
+                else:
+                    folder = os.path.dirname(self.selected_import_files[0])
+                    self.import_source_display.set(f"{len(self.selected_import_files)} files selected in {folder}")
+        else:
+            d = filedialog.askdirectory(title="Select Backup Folder Containing Exported WAVs")
+            if d:
+                self.selected_import_files = []
+                self.import_source_display.set(d)
 
     def toggle_backup_range_state(self):
         if self.backup_mode_var.get() == "range":
@@ -669,75 +735,151 @@ class BossRC500App:
 
     # --- IMPORT LOGIC ---
 
+    def parse_import_filename(self, filename):
+        """Extracts (slot_int, track_str) from an exported WAV filename, or returns None."""
+        # Pattern 1: "Memory_01_Name_Track_1.wav"
+        match = re.match(r"Memory_(\d+)_.*Track_(\d+)\.wav$", filename, re.IGNORECASE)
+        # Pattern 2: "098_SongName_...Track_1.wav"
+        if not match:
+            match = re.match(r"(\d+)_.*Track_(\d+)\.wav$", filename, re.IGNORECASE)
+        # Pattern 3: "Memory_01_Track_1.wav"
+        if not match:
+            match = re.match(r"Memory_(\d+)_Track_(\d+)\.wav$", filename, re.IGNORECASE)
+        if not match:
+            return None
+        return int(match.group(1)), match.group(2)
+
+    def get_import_plan(self):
+        """Returns a list of (src_path, slot_int, track_str) tuples matching user selection."""
+        mode = self.import_mode_var.get()
+        candidate_paths = []
+
+        if mode == "files":
+            candidate_paths = list(self.selected_import_files)
+        else:
+            folder = self.import_source_display.get().strip()
+            if not folder or not os.path.isdir(folder):
+                return []
+            for fname in sorted(os.listdir(folder)):
+                if fname.lower().endswith(".wav") and not fname.startswith("._"):
+                    candidate_paths.append(os.path.join(folder, fname))
+
+        range_str = self.import_range_var.get().strip() if mode == "folder" else ""
+        allowed_slots = set(self.parse_range(range_str)) if range_str else None
+
+        plan = []
+        for src_path in candidate_paths:
+            fname = os.path.basename(src_path)
+            parsed = self.parse_import_filename(fname)
+            if not parsed:
+                self.log(f"Skipped unrecognized filename: {fname}")
+                continue
+            slot_int, track_str = parsed
+            if allowed_slots is not None and slot_int not in allowed_slots:
+                continue
+            plan.append((src_path, slot_int, track_str))
+        return plan
+
+    def preview_import(self):
+        if not self.source_dir.get():
+            messagebox.showerror("Error", "Pedal not connected.")
+            return
+        if not self.import_source_display.get():
+            messagebox.showerror("Error", "Please select WAV file(s) or a backup folder first.")
+            return
+        if self.import_mode_var.get() == "folder" and self.import_range_var.get().strip():
+            if not self.parse_range(self.import_range_var.get()):
+                messagebox.showerror("Error", "Please enter a valid slot filter (e.g. 97 or 1-5).")
+                return
+
+        self.log("--- PREVIEW IMPORT (NO FILES WRITTEN) ---")
+        plan = self.get_import_plan()
+        if not plan:
+            self.log("No matching WAV files queued for restore.")
+            return
+
+        for src_path, slot_int, track_str in plan:
+            target_rel = f"{slot_int:03d}_{track_str}/{slot_int:03d}_{track_str}.WAV"
+            self.log(f"[PREVIEW] {os.path.basename(src_path)} -> Slot #{slot_int} Track {track_str} ({target_rel})")
+        self.log(f"--- PREVIEW COMPLETE: {len(plan)} file(s) queued ---")
+
     def start_import_thread(self):
         if not self.source_dir.get():
             messagebox.showerror("Error", "Pedal not connected.")
             return
-        if not self.import_source_dir.get():
-            messagebox.showerror("Error", "Please select a backup folder.")
+        if not self.import_source_display.get():
+            messagebox.showerror("Error", "Please select WAV file(s) or a backup folder.")
+            return
+        if self.import_mode_var.get() == "folder" and self.import_range_var.get().strip():
+            if not self.parse_range(self.import_range_var.get()):
+                messagebox.showerror("Error", "Please enter a valid slot filter (e.g. 97 or 1-5).")
+                return
+        if self.is_running:
             return
 
-        if not messagebox.askyesno("Confirm Import", "This will overwrite any existing audio in the target memory slots.\n\nContinue?"):
+        plan = self.get_import_plan()
+        if not plan:
+            messagebox.showwarning("Nothing to Restore", "No matching WAV files were found for your selection.")
+            return
+
+        slot_summary = ", ".join(f"#{s} Trk {t}" for _, s, t in plan[:8])
+        if len(plan) > 8:
+            slot_summary += f", ... (+{len(plan) - 8} more)"
+
+        if not messagebox.askyesno(
+            "Confirm Import",
+            f"Restore {len(plan)} audio file(s) to:
+{slot_summary}
+
+"
+            "This will overwrite existing audio in those slots.
+Continue?"
+        ):
             return
 
         self.is_running = True
-        threading.Thread(target=self.run_import, daemon=True).start()
+        threading.Thread(target=self.run_import, args=(plan,), daemon=True).start()
 
-    def run_import(self):
+    def run_import(self, plan):
         try:
-            backup_folder = self.import_source_dir.get()
-            pedal_wave_dir = self.source_dir.get() # ROLAND/WAVE
-            
+            pedal_wave_dir = self.source_dir.get()  # ROLAND/WAVE
             self.log("--- STARTING IMPORT ---")
-            
-            files = [f for f in os.listdir(backup_folder) if f.lower().endswith('.wav') and not f.startswith('._')]
-            if not files:
-                self.log("No WAV files found in backup folder.")
-                return
 
             count = 0
-            
-            for f in files:
-                # Regex 1: "Memory_01_Name_Track_1.wav"
-                match = re.match(r"Memory_(\d+)_.*Track_(\d+)\.wav", f, re.IGNORECASE)
-                
-                # Regex 2: "098_Memory98_...Track_1.wav" (Number first)
-                if not match:
-                    match = re.match(r"(\d+)_.*Track_(\d+)\.wav", f, re.IGNORECASE)
-                
-                # Regex 3: "Memory_01_Track_1.wav" (Simple)
-                if not match:
-                    match = re.match(r"Memory_(\d+)_Track_(\d+)\.wav", f, re.IGNORECASE)
+            for src_file, slot_int, track_str in plan:
+                boss_folder_name = f"{slot_int:03d}_{track_str}"  # e.g., "097_1"
+                boss_file_name = f"{slot_int:03d}_{track_str}.WAV"  # e.g., "097_1.WAV"
 
-                if match:
-                    slot_str = match.group(1) 
-                    track_str = match.group(2)
-                    
-                    # Normalize to Boss Format
-                    slot_int = int(slot_str)
-                    boss_folder_name = f"{slot_int:03d}_{track_str}" # "098_1"
-                    boss_file_name = f"{slot_int:03d}_{track_str}.WAV" # "098_1.WAV"
-                    
-                    # Target Paths
-                    target_folder = os.path.join(pedal_wave_dir, boss_folder_name)
-                    target_file = os.path.join(target_folder, boss_file_name)
-                    
-                    if not os.path.exists(target_folder):
-                        os.makedirs(target_folder)
-                        
-                    src_file = os.path.join(backup_folder, f)
-                    shutil.copy2(src_file, target_file)
-                    
-                    self.log(f"Restored: #{slot_int} Trk {track_str}")
-                    count += 1
-                else:
-                    self.log(f"Skipped unknown file format: {f}")
+                target_folder = os.path.join(pedal_wave_dir, boss_folder_name)
+                target_file = os.path.join(target_folder, boss_file_name)
 
-            self.log(f"--- IMPORT COMPLETE: {count} files restored ---")
-            self.root.after(0, lambda: messagebox.showinfo("Import Complete", f"Restored {count} audio files.\n\nRemember to rename them on the pedal!"))
+                # Guard against corrupt 0-byte FAT32 file colliding with target directory name
+                if os.path.isfile(target_folder) or os.path.islink(target_folder):
+                    self.log(f"Repairing corrupt file collision at {boss_folder_name}...")
+                    os.remove(target_folder)
+
+                os.makedirs(target_folder, exist_ok=True)
+                shutil.copy2(src_file, target_file)
+
+                self.log(f"Restored: #{slot_int} Trk {track_str} ({boss_file_name})")
+                count += 1
+
+            self.clean_macos_dotfiles(pedal_wave_dir)
+            self.log(f"--- IMPORT COMPLETE: {count} file(s) restored ---")
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Import Complete",
+                f"Restored {count} audio file(s).
+
+"
+                "1. Eject the BOSS RC-500 drive cleanly before unplugging USB.
+"
+                "2. Rename the memory slot(s) manually on the pedal if needed."
+            ))
 
         except Exception as e:
             self.log(f"Import Error: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Import Error", f"Restore failed:
+{e}"))
         finally:
             self.is_running = False
 
@@ -765,7 +907,7 @@ class BossRC500App:
         targets = self.get_delete_targets()
         source = self.source_dir.get()
         
-        self.log(f"--- PREVIEW DELETE ---")
+        self.log("--- PREVIEW DELETE ---")
         if not targets:
             self.log("No matching loops found for that range.")
             return
@@ -784,7 +926,7 @@ class BossRC500App:
                     name = "No Name"
                 
                 self.log(f"[FOUND] #{slot} ({name}) -> {folder_name}")
-            except:
+            except Exception:
                 self.log(f"[FOUND] {folder_name}")
         
         self.log(f"Total found: {len(targets)}")
@@ -795,8 +937,10 @@ class BossRC500App:
             messagebox.showinfo("Info", "No loops found to delete.")
             return
 
-        msg = f"You are about to PERMANENTLY DELETE {len(targets)} loops from the pedal.\n\n"
-        msg += "Make sure you have used the Backup tab first!\n\nContinue?"
+        msg = f"You are about to PERMANENTLY DELETE {len(targets)} loop track folder(s) from the pedal.\n\n"
+        msg += "NOTE: The pedal's MEMORY1.RC0 metadata is not modified by USB deletion. "
+        msg += "If the pedal flags a deleted slot on boot, run WRITE -> CLEAR on that memory slot.\n\n"
+        msg += "Make sure you have used the Backup tab first! Continue?"
         
         if not messagebox.askyesno("Confirm Delete", msg, icon='warning'):
             self.log("Delete cancelled.")
@@ -813,9 +957,16 @@ class BossRC500App:
                 self.log(f"Deleted: {os.path.basename(folder)}")
             except Exception as e:
                 self.log(f"Error deleting {folder}: {e}")
-        
+
+        self.clean_macos_dotfiles(self.source_dir.get())
         self.log("--- DELETE COMPLETE ---")
-        messagebox.showinfo("Done", "Deletion complete.")
+        messagebox.showinfo(
+            "Done",
+            "Deletion complete.
+
+"
+            "Eject the BOSS RC-500 drive cleanly before disconnecting USB."
+        )
 
 if __name__ == "__main__":
     root = tk.Tk()
