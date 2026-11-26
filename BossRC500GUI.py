@@ -828,12 +828,8 @@ class BossRC500App:
 
         if not messagebox.askyesno(
             "Confirm Import",
-            f"Restore {len(plan)} audio file(s) to:
-{slot_summary}
-
-"
-            "This will overwrite existing audio in those slots.
-Continue?"
+            f"Restore {len(plan)} audio file(s) to:\n{slot_summary}\n\n"
+            "This will overwrite existing audio in those slots.\nContinue?"
         ):
             return
 
@@ -868,18 +864,15 @@ Continue?"
             self.log(f"--- IMPORT COMPLETE: {count} file(s) restored ---")
             self.root.after(0, lambda: messagebox.showinfo(
                 "Import Complete",
-                f"Restored {count} audio file(s).
-
-"
-                "1. Eject the BOSS RC-500 drive cleanly before unplugging USB.
-"
+                f"Restored {count} audio file(s).\n\n"
+                "1. Eject the BOSS RC-500 drive cleanly before unplugging USB.\n"
                 "2. Rename the memory slot(s) manually on the pedal if needed."
             ))
 
         except Exception as e:
-            self.log(f"Import Error: {e}")
-            self.root.after(0, lambda: messagebox.showerror("Import Error", f"Restore failed:
-{e}"))
+            err_msg = str(e)
+            self.log(f"Import Error: {err_msg}")
+            self.root.after(0, lambda: messagebox.showerror("Import Error", f"Restore failed:\n{err_msg}"))
         finally:
             self.is_running = False
 
@@ -962,9 +955,7 @@ Continue?"
         self.log("--- DELETE COMPLETE ---")
         messagebox.showinfo(
             "Done",
-            "Deletion complete.
-
-"
+            "Deletion complete.\n\n"
             "Eject the BOSS RC-500 drive cleanly before disconnecting USB."
         )
 
